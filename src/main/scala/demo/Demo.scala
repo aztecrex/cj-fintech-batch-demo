@@ -28,23 +28,8 @@ object Demo extends App {
   result.incomplete.map(i => s"${i.index + 1}: ${i.value}  (${i.source})").foreach(r => println("  " + r))
 
 
-  def parse(line: String): Processor[Order] = {
-    if (line.trim() == "")
-      return reject('BlankLine)
-    val parseError = 'Parse
-    val Pattern = """([^ ,]+)\s*,\s*([^ ,]+)\s*,\s*([^ ,]+)\s*,\s*([^ ,]+)\s*.*""".r
-    Try {
-      line match {
-        case Pattern(id, terms, amount, product) => pure(Order(id, BigInt(terms), BigDecimal(amount), BigInt(product)))
-        case _ => reject(parseError)
-      }
-    } match {
-      case Success(maybeOrder) => maybeOrder
-      case _ => reject(parseError)
-    }
-  }
-
   def publisherForContract(contractId: BigInt): Processor[BigInt] = pure(contractId / 7)
+
   def advertiserForContract(contractId: BigInt): Processor[BigInt] = pure(contractId % 3)
 
   def computeCommission(amount: BigDecimal, contractId: BigInt): Processor[BigDecimal] = {
@@ -68,9 +53,25 @@ object Demo extends App {
     pure(())
   }
 
-}
+  case class Order(id: String, terms: BigInt, amount: BigDecimal, product: BigInt )
 
-case class Order(id: String, terms: BigInt, amount: BigDecimal, product: BigInt )
+  def parse(line: String): Processor[Order] = {
+    if (line.trim() == "")
+      return reject('BlankLine)
+    val parseError = 'Parse
+    val Pattern = """([^ ,]+)\s*,\s*([^ ,]+)\s*,\s*([^ ,]+)\s*,\s*([^ ,]+)\s*.*""".r
+    Try {
+      line match {
+        case Pattern(id, terms, amount, product) => pure(Order(id, BigInt(terms), BigDecimal(amount), BigInt(product)))
+        case _ => reject(parseError)
+      }
+    } match {
+      case Success(maybeOrder) => maybeOrder
+      case _ => reject(parseError)
+    }
+  }
+
+}
 
 object DemoData {
 
