@@ -1,6 +1,6 @@
 package demo.batch.temp
 
-import com.fintech.lib.batch.{AltProcessor, BatchContext, Item}
+import com.fintech.lib.batch.{AltProcessor, BatchContext, BatchProcessor, Item}
 
 import scala.util.{Success, Try}
 
@@ -12,21 +12,30 @@ object Demo extends App {
   val commissions = for {
     src <- source()
     order <- parse(src)
+    // order <- source().flatMap(parse)
+
+    idx <- index()
+    lineNum = idx + 1
+    // lineNum <- index().map(_ + 1)
+    _ <- guard('Line6)(lineNum != 6)
+
     commission <- computeCommission(order.amount, order.terms)
-    _ <- post(order.id, commission)
-    line <- index().map(_ + 1)
-    _ <- guard('Line6)(line != 6)
-    publisher <- publisherForContract(order.terms)
     advertiser <- advertiserForContract(order.terms)
-    _ <- log(s"LOG: $line: commission $commission posted to publisher $publisher from advertiser $advertiser for order ${order.id}")
+    publisher <- publisherForContract(order.terms)
+
+    session <- begin()
+    _ <- session.charge(advertiser, order.id, commission)
+    _ <- session.pay(publisher, order.id, commission * -1)
+    _ <- session.commit()
+
+    _ <- log(s"LOG: $lineNum: commission $commission paid to publisher $publisher from advertiser $advertiser for order ${order.id}")
   } yield ()
 
 
   val result = commissions.exec(DemoData.batch)
 
   println("rejected: ")
-  result.incomplete.map(i => s"${i.index + 1}: ${i.value}  (${i.source})").foreach(r => println("  " + r))
-
+  result.incomplete.map(i => s"""${i.index + 1}: ${i.value}  ("${i.source}")""").foreach(r => println("  " + r))
 
   def publisherForContract(contractId: BigInt): Processor[BigInt] = pure(contractId / 7)
 
@@ -40,13 +49,28 @@ object Demo extends App {
     }
   }
 
-  def post(orderId: String, amount: BigDecimal): Processor[Unit] = {
-    if (amount < 0) reject ('InvalidAmount)
-    else {
-      // write it to the shopcart
-      pure(())
+  case class DatabaseSession() {
+    def charge(advertoserId: BigInt, orderId: String, amount: BigDecimal): Processor[Unit] = {
+      if (amount < 0) { rollback(); reject ('TooSmall) }
+      else {
+        // write it to the shopcart
+        pure(())
+      }
     }
+
+    def pay(publisherId: BigInt, orderId: String, amount: BigDecimal): Processor[Unit] = {
+      if (amount > 0) { rollback(); reject ('TooBig) }
+      else {
+        // write it to the shopcart
+        pure(())
+      }
+    }
+
+    def rollback(): Unit = ()
+    def commit(): Processor[Unit] = pure(())
   }
+
+  def begin(): Processor[DatabaseSession] = pure(DatabaseSession())
 
   def log(msg: String): Processor[Unit] = {
     println(msg)
